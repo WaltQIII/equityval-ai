@@ -2,6 +2,18 @@
 
 **EquityVal AI** (*Venture 2: Algorithmic Real Estate Appraisal Bias and Reconsideration of Value (ROV) Auditor*) is an enterprise B2B/B2C compliance and valuation audit platform engineered on the **SkySim AI Production Baseline Stack**.
 
+---
+
+## Live Production Deployment (Google Cloud Run `us-east1`)
+
+- **Live Frontend Application:** [https://equityval-ai-frontend-745110910494.us-east1.run.app](https://equityval-ai-frontend-745110910494.us-east1.run.app) *(also [https://equityval-ai-frontend-yh57ey7s7q-ue.a.run.app](https://equityval-ai-frontend-yh57ey7s7q-ue.a.run.app))*
+- **Live Backend API:** [https://equityval-ai-backend-745110910494.us-east1.run.app](https://equityval-ai-backend-745110910494.us-east1.run.app) *(also [https://equityval-ai-backend-yh57ey7s7q-ue.a.run.app](https://equityval-ai-backend-yh57ey7s7q-ue.a.run.app))*
+- **Live Interactive OpenAPI / Swagger Docs:** [https://equityval-ai-backend-745110910494.us-east1.run.app/docs](https://equityval-ai-backend-745110910494.us-east1.run.app/docs)
+- **Live $100 Budget Circuit Breaker Health Check:** [https://equityval-ai-backend-745110910494.us-east1.run.app/api/health](https://equityval-ai-backend-745110910494.us-east1.run.app/api/health)
+- **GitHub Repository:** [https://github.com/WaltQIII/equityval-ai](https://github.com/WaltQIII/equityval-ai)
+
+---
+
 It addresses the **$48,000 average home undervaluation disparity** ($156 billion in lost Black homeownership equity nationwide) by combining:
 1. **FHFA / HUD / Fair Housing Act Form 1004 NLP Prohibited-Phrase Auditing**: Flags subjective and discriminatory narrative language (*"changing demographic trends"*, *"pride of ownership"*, *"crime"*, *"distressed corridor"*) and generates compliant objective rewrites.
 2. **Google Gemini / Vertex AI Multimodal UAD Condition & Quality Scoring (`C1.0–C6.0`, `Q1.0–Q6.0`)**: Audits property inspection imagery against appraiser ratings (e.g., `C3.1` vs downgraded `C4.0`) with a deterministic local fallback so local dev and `pytest` run with zero external API failures.
