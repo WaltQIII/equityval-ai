@@ -294,3 +294,71 @@ def test_user_register_login_and_lender_share_approval():
     assert approve_resp.status_code == 200
     assert approve_resp.json()["lender_approved"] is True
     assert approve_resp.json()["lender_approved_by"] == "underwriting@cdfi-lender.org"
+
+
+def test_sample_form_1004_pdf_generation_and_live_parsing():
+    pdf_resp = client.get(
+        "/api/audits/sample-form-1004/pdf",
+        params={
+            "property_address": "890 NW 62nd St, Miami, FL 33150",
+            "census_tract": "12086001901",
+            "gla_sqft": 2040,
+            "appraised_value": 445000,
+            "contract_price": 510000,
+        },
+    )
+    assert pdf_resp.status_code == 200
+    assert pdf_resp.content.startswith(b"%PDF-1.4")
+
+    parse_resp = client.post(
+        "/api/audits/parse-form-1004",
+        files={"file": ("miami_form_1004.pdf", pdf_resp.content, "application/pdf")},
+    )
+    assert parse_resp.status_code == 200
+    parsed = parse_resp.json()
+    assert parsed["property_address"] == "890 NW 62nd St, Miami, FL 33150"
+    assert parsed["census_tract_geoid"] == "12086001901"
+    assert parsed["subject_gla_sqft"] == 2040
+    assert parsed["appraised_value_usd"] == 445000.0
+    assert parsed["contract_price_usd"] == 510000.0
+    assert parsed["appraiser_condition_code"] == "C4"
+    assert parsed["appraiser_quality_code"] == "Q4"
+    assert "changing demographic trends" in parsed["form_1004_neighborhood_commentary"]
+
+
+def test_census_tract_geocoder_and_apn_deed_verified_comparables():
+    geo_resp = client.get(
+        "/api/audits/geocode/tract",
+        params={"address": "1428 Cascade Rd SW, Atlanta, GA 30311"},
+    )
+    assert geo_resp.status_code == 200
+    geo = geo_resp.json()
+    assert len(geo["census_tract_geoid"]) >= 6
+
+    audit_resp = client.post(
+        "/api/audits/create",
+        json={"property_address": "1428 Cascade Rd SW, Atlanta, GA 30311"},
+    )
+    assert audit_resp.status_code == 201
+    comps = audit_resp.json()["valuation_result"]["evaluated_comps"]
+    assert any("APN-" in c["address"] and "WD-2026-" in c["address"] for c in comps)
+
+
+def test_gcs_cors_policy_and_simulate_signed_stripe_webhook():
+    pol_resp = client.get("/api/uploads/lifecycle-policy")
+    assert pol_resp.status_code == 200
+    pol = pol_resp.json()
+    assert "cors" in pol
+    assert "PUT" in pol["cors"][0]["method"]
+
+    sim_resp = client.post(
+        "/api/billing/simulate-webhook",
+        json={
+            "customer_email": "analyst@equityval.ai",
+            "plan": "enterprise",
+        },
+    )
+    assert sim_resp.status_code == 200
+    sim_data = sim_resp.json()
+    assert sim_data["signature_verified"] is True
+    assert sim_data["updated_plan"] == "enterprise"

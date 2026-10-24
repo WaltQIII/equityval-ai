@@ -4,6 +4,10 @@ Appraisal Bias & Reconsideration of Value (ROV) Audit Router (`/api/audits`).
 Implements:
 - `POST /api/audits/create`: Run spatial regression, NLP Form 1004 prohibited-phrase detection,
   Gemini Vision UAD condition/quality scoring, and GCS V4 Signed URL generation, persisted to Firestore.
+- `POST /api/audits/parse-form-1004`: Parse an uploaded Fannie Mae Form 1004 PDF / document and extract
+  Subject Property Address, Census Tract GEOID, GLA, Appraised Value, Contract Price, UAD ratings, and Commentary.
+- `GET /api/audits/sample-form-1004/pdf`: Download a standards-compliant Sample Fannie Mae Form 1004 PDF.
+- `GET /api/audits/geocode/tract`: Resolve any US address via the official U.S. Census Bureau Geocoder API.
 - `GET /api/audits`: List all ROV audits.
 - `GET /api/audits/{audit_id}`: Retrieve a specific ROV audit record.
 - `POST /api/audits/{audit_id}/acknowledge-compliance`: Record mandatory Interagency ROV & USPAP
@@ -19,7 +23,7 @@ from datetime import datetime, timezone
 from typing import List, Literal, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 
 from app.api.uploads import generate_batch_signed_urls
 from app.models.schemas import (
@@ -33,10 +37,76 @@ from app.services.exporter import (
     export_rov_comps_csv,
     export_rov_dossier_json,
 )
+from app.services.pdf_parser import (
+    ParsedForm1004Result,
+    generate_sample_form_1004_pdf_bytes,
+    parse_form_1004_document,
+)
+from app.services.property_feed import GeocodeTractResult, lookup_census_tract_geoid
 from app.services.rov_engine import execute_rov_valuation_audit
 from app.services.store import DEFAULT_DEMO_USER_ID, db_store
 
 router = APIRouter(prefix="/api/audits", tags=["audits"])
+
+
+@router.post("/parse-form-1004", response_model=ParsedForm1004Result)
+async def parse_uploaded_form_1004_endpoint(
+    file: UploadFile = File(...),
+) -> ParsedForm1004Result:
+    """
+    Extract Subject Property Address, Census Tract GEOID, GLA (Sq Ft), Appraised Value,
+    Contract Price, UAD Condition/Quality ratings, and Neighborhood Commentary from an
+    uploaded Fannie Mae Form 1004 Appraisal PDF.
+    """
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded Form 1004 file is empty.",
+        )
+    return parse_form_1004_document(
+        raw_bytes=raw_bytes,
+        filename=file.filename or "form_1004_appraisal.pdf",
+    )
+
+
+@router.get("/sample-form-1004/pdf")
+def download_sample_form_1004_pdf(
+    property_address: str = Query(default="1428 Cascade Rd SW, Atlanta, GA 30311"),
+    census_tract: str = Query(default="13121006100"),
+    gla_sqft: int = Query(default=2280),
+    appraised_value: int = Query(default=412000),
+    contract_price: int = Query(default=465000),
+) -> Response:
+    """
+    Download a real, standards-compliant Fannie Mae Form 1004 Uniform Residential Appraisal Report PDF
+    that can be uploaded into `POST /api/audits/parse-form-1004` or directly to GCS via V4 Signed URL.
+    """
+    pdf_bytes = generate_sample_form_1004_pdf_bytes(
+        property_address=property_address,
+        census_tract=census_tract,
+        gla_sqft=gla_sqft,
+        appraised_value=appraised_value,
+        contract_price=contract_price,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="fannie_mae_form_1004_sample.pdf"'
+        },
+    )
+
+
+@router.get("/geocode/tract", response_model=GeocodeTractResult)
+def lookup_address_census_tract_endpoint(
+    address: str = Query(..., min_length=5, description="Full US street address"),
+) -> GeocodeTractResult:
+    """
+    Query the official U.S. Census Bureau Geocoder API to resolve a street address into
+    WGS84 coordinates and its 11-digit Census Tract GEOID.
+    """
+    return lookup_census_tract_geoid(address=address)
 
 
 @router.post("/create", response_model=RovAuditRecord, status_code=status.HTTP_201_CREATED)
@@ -57,7 +127,7 @@ def create_rov_audit(req: RovAuditCreateRequest) -> RovAuditRecord:
         id=audit_id,
         user_id=owner_id,
         property_address=req.property_address,
-        census_tract_geoid=req.census_tract_geoid,
+        census_tract_geoid=valuation_result.census_tract_advisory.census_tract_geoid,
         subject_lat=req.subject_lat,
         subject_lon=req.subject_lon,
         subject_gla_sqft=req.subject_gla_sqft,
